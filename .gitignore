@@ -9,3 +9,24 @@ tests/
 rec_train_set.sample.txt
 .env
 *.egg-info
+
+# 数据文件
+data/dataset/
+*.csv
+*.pkl
+*.h5
+*.model
+*.bin
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Python cache
+*.pyc
+*.pyo
+*.pyd
+
+# 模型和临时结果
+temp_results/
+models/
+checkpoints/
