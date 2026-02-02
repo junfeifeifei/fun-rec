@@ -74,3 +74,63 @@ def build_dssm_model(feature_columns, model_config):
     output = PredictLayer(name="dssm_output")(cosine_similarity)
     model = tf.keras.Model(inputs=input_layer_dict, outputs=output)
     return model, user_model, item_model
+
+
+def build_dssm_inbatch_model(feature_columns, model_config):
+    """
+    构建双塔模型（In-batch negatives / InfoNCE）。
+
+    与 build_dssm_model 的区别：
+    - 输出为 batch 内用户与物品的相似度矩阵 (B x B)
+    - 训练时可配合 contrastive_loss 使用对角线作为正样本
+    """
+    dnn_units = model_config.get("dnn_units", [128, 64, 32])
+    dropout_rate = model_config.get("dropout_rate", 0.2)
+
+    input_layer_dict = build_input_layer(feature_columns)
+    group_embedding_feature_dict = build_group_feature_embedding_table_dict(
+        feature_columns, input_layer_dict, prefix="embedding/"
+    )
+
+    user_feature = concat_group_embedding(
+        group_embedding_feature_dict, "user", axis=1, flatten=True
+    )
+    item_feature = concat_group_embedding(
+        group_embedding_feature_dict, "item", axis=1, flatten=True
+    )
+
+    user_tower = DNNs(
+        units=dnn_units, activation="tanh", dropout_rate=dropout_rate, use_bn=True
+    )(user_feature)
+    item_tower = DNNs(
+        units=dnn_units, activation="tanh", dropout_rate=dropout_rate, use_bn=True
+    )(item_feature)
+
+    user_embedding = tf.keras.layers.Lambda(lambda x: tf.nn.l2_normalize(x, axis=1))(
+        user_tower
+    )
+    item_embedding = tf.keras.layers.Lambda(lambda x: tf.nn.l2_normalize(x, axis=1))(
+        item_tower
+    )
+
+    # batch 内相似度矩阵: (B, D) x (B, D)^T => (B, B)
+    sim_matrix = tf.keras.layers.Lambda(
+        lambda x: tf.matmul(x[0], x[1], transpose_b=True), name="inbatch_sim_matrix"
+    )([user_embedding, item_embedding])
+
+    user_input_layer_dict = {
+        fc.name: input_layer_dict[fc.name]
+        for fc in feature_columns
+        if "user" in fc.group
+    }
+    user_model = tf.keras.Model(inputs=user_input_layer_dict, outputs=user_embedding)
+
+    item_input_layer_dict = {
+        fc.name: input_layer_dict[fc.name]
+        for fc in feature_columns
+        if "item" in fc.group
+    }
+    item_model = tf.keras.Model(inputs=item_input_layer_dict, outputs=item_embedding)
+
+    model = tf.keras.Model(inputs=input_layer_dict, outputs=sim_matrix)
+    return model, user_model, item_model

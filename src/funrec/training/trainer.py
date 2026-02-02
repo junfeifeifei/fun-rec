@@ -158,6 +158,28 @@ def train_model(
             from .loss import sampledsoftmaxloss
 
             loss = sampledsoftmaxloss
+        elif isinstance(loss, str) and loss == "contrastive_loss":
+            from .loss import contrastive_loss
+
+            loss_params = training_config.get("loss_params", {})
+            temperature = float(
+                loss_params.get(
+                    "temperature", training_config.get("model_params", {}).get("temperature", 0.1)
+                )
+            )
+
+            def _contrastive(y_true, y_pred):
+                return contrastive_loss(y_true, y_pred, temperature=temperature)
+
+            loss = _contrastive
+        elif isinstance(loss, str) and loss == "sum_loss":
+            from .loss import sum_loss
+
+            loss = sum_loss
+        elif isinstance(loss, str) and loss == "mean_loss":
+            from .loss import mean_loss
+
+            loss = mean_loss
 
         # 处理优化器 - 对Apple Silicon使用legacy Adam
         is_apple_silicon = platform.machine().lower() in ["arm64", "aarch64"]
